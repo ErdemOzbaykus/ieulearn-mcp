@@ -54,3 +54,10 @@ test('MCP sunucusu: initialize ve tools/list (ağ yok)', async () => {
   assert.deepEqual(list.result.tools.map(t => t.name), ['list_courses', 'list_assignments', 'list_exams', 'course_content', 'read_learn_page', 'panopto_videos', 'panopto_transcript']);
   assert.equal(extra, undefined); // bildirime yanıt yok
 });
+
+test('ffHeaders: çerez yalnızca Panopto akışına, yalnızca https', () => {
+  const pj = { header: 'a=1' };
+  assert.deepEqual(P.ffHeaders(pj, 'https://panopto.ieu.edu.tr/Panopto/Content/x.mp4'), ['-protocol_whitelist', 'https,tls,tcp,crypto', '-headers', 'Cookie: a=1\r\n']);
+  assert.deepEqual(P.ffHeaders(pj, 'https://cdn.example/x.mp4'), ['-protocol_whitelist', 'https,tls,tcp,crypto']);
+  assert.deepEqual(P.ffHeaders(pj, 'http://panopto.ieu.edu.tr/x.mp4'), ['-protocol_whitelist', 'https,tls,tcp,crypto']);
+});
