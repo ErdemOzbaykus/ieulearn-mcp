@@ -1,0 +1,10 @@
+{
+  "name": "ieulearn-mcp",
+  "version": "0.1.0",
+  "description": "IEULearn (İzmir Ekonomi Üniversitesi) ve Panopto ders kayıtları için MCP sunucusu",
+  "main": "index.js",
+  "bin": { "ieulearn-mcp": "index.js" },
+  "scripts": { "start": "node index.js", "test": "node --test" },
+  "engines": { "node": ">=22" },
+  "license": "MIT"
+}
