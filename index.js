@@ -25,7 +25,8 @@ const DOWNLOADS = () => env().IEULEARN_DOWNLOADS || path.join(CACHE(), 'files');
 const MAX_FILE = 300e6; // bayt; büyük video vb. diski doldurmasın
 
 // IEULearn'den dosya indirir. Yalnızca site içi öğrenci/yükleme adresleri; HTML (giriş sayfası, hata) dosya sayılmaz.
-async function download(url, dir) {
+// want: istenen ad (ör. bağlantı metni); uzantısı yoksa sunucudaki dosyanın uzantısı eklenir.
+async function download(url, dir, want) {
   let u;
   try { u = new URL(String(url || ''), learn.LEARN); } catch { throw new Error('geçersiz adres'); }
   if (u.origin !== learn.LEARN || !/^\/(student|uploads)\//.test(u.pathname)) throw new Error('Yalnızca https://learn.ieu.edu.tr/student/... ve /uploads/... dosyaları indirilir');
@@ -37,7 +38,8 @@ async function download(url, dir) {
   const cd = r.headers.get('content-disposition') || '';
   let name = /filename\*=UTF-8''([^;]+)/i.exec(cd)?.[1] || /filename="?([^";]+)"?/i.exec(cd)?.[1] || u.pathname.split('/').pop();
   try { name = decodeURIComponent(name); } catch { /* olduğu gibi */ }
-  name = path.basename(name).replace(/[\x00-\x1f\x7f<>:"|?*\\]/g, '_').replace(/^\.+/, '').slice(-150) || 'dosya';
+  if (want) { const ext = path.extname(name); name = String(want) + (ext && !String(want).toLowerCase().endsWith(ext.toLowerCase()) ? ext : ''); }
+  name = path.basename(name.replace(/[\\/]/g, '-')).replace(/[\x00-\x1f\x7f<>:"|?*\\]/g, '_').replace(/^\.+/, '').slice(-150) || 'dosya';
   const chunks = []; let n = 0;
   for await (const c of r.body) { n += c.length; if (n > MAX_FILE) throw new Error('Dosya çok büyük (300 MB üstü)'); chunks.push(c); }
   fs.mkdirSync(dir, { recursive: true });
@@ -105,8 +107,7 @@ const TOOLS = [
     run: () => exams(env()) },
   { name: 'course_content', description: 'Dersin "Ders İçeriği" sayfası: haftalık konu planı metni ve ders dosyaları (PDF/PPTX) listesi.', inputSchema: { type: 'object', properties: { course: str('Ders kodu, ör. MCE350') }, required: ['course'] },
     run: async ({ course: q }) => {
-      const c = await course(q), html = await get(`/student/courses/${c.courseId}/overview/unit-plan`);
-      const files = [...parsePlan(html).map(f => ({ title: f.title, file: f.file_name, url: `${learn.LEARN}/student/courses/${c.courseId}/resources/${f.id}/download` })), ...parseLinks(html, learn.LEARN)];
+      const c = await course(q), { html, files } = await courseFiles(c);
       return { ...c, files, plan: htmlText(html).slice(0, MAX / 2) };
     } },
   { name: 'read_learn_page', description: 'IEULearn öğrenci sayfasını okunur metin olarak getirir (giriş yapılmış). Yalnızca /student ile başlayan yollar; ör. "/student/courses/16911", "/student?ann=6160".', inputSchema: { type: 'object', properties: { path: str('/student ile başlayan yol') }, required: ['path'] },
@@ -115,9 +116,11 @@ const TOOLS = [
       if (u.origin !== learn.LEARN || !/^\/student(\/|$)/.test(u.pathname)) throw new Error('Yalnızca https://learn.ieu.edu.tr/student... sayfaları okunur');
       return htmlText(await get(u.pathname + u.search)).slice(0, MAX);
     } },
-  { name: 'download_file', description: 'IEULearn dosyasını (course_content\'teki ders dosyası, ödev ya da duyuru eki; https://learn.ieu.edu.tr/student/... veya /uploads/... adresi) bu bilgisayara indirir ve yolunu döndürür. as_text=true ile PDF/düz metin dosyasının içeriği de döner (uzunsa offset ile parça parça).', inputSchema: { type: 'object', properties: { url: str('Dosya adresi'), course: str('İsteğe bağlı ders kodu: dosya o dersin klasörüne konur'), as_text: { type: 'boolean', description: 'İçeriği metin olarak da döndür (PDF ve düz metin)' }, offset: { type: 'integer', description: 'as_text: başlangıç karakteri (varsayılan 0)' } }, required: ['url'] },
-    run: async ({ url, course: q, as_text, offset = 0 }) => {
-      const f = await download(url, path.join(DOWNLOADS(), q ? (await course(q)).course : 'genel'));
+  { name: 'download_file', description: 'IEULearn dosyasını (course_content\'teki ders dosyası, ödev ya da duyuru eki; https://learn.ieu.edu.tr/student/... veya /uploads/... adresi) bu bilgisayara indirir ve yolunu döndürür. as_text=true ile PDF/düz metin dosyasının içeriği de döner (uzunsa offset ile parça parça).', inputSchema: { type: 'object', properties: { url: str('Dosya adresi'), course: str('İsteğe bağlı ders kodu: dosya o dersin klasörüne konur, adı ders içeriğindeki addan alınır'), name: str('İsteğe bağlı dosya adı (ör. course_content\'teki "file")'), as_text: { type: 'boolean', description: 'İçeriği metin olarak da döndür (PDF ve düz metin)' }, offset: { type: 'integer', description: 'as_text: başlangıç karakteri (varsayılan 0)' } }, required: ['url'] },
+    run: async ({ url, course: q, name, as_text, offset = 0 }) => {
+      const c = q && await course(q);
+      if (c && !name) name = (await courseFiles(c)).find(f => f.url === new URL(String(url), learn.LEARN).href)?.file; // açıklamadaki bağlantı "ed_<rastgele>.pptx" diye iner: ders içeriğindeki adı kullan
+      const f = await download(url, path.join(DOWNLOADS(), c ? c.course : 'genel'), name);
       const out = { path: f.file, name: f.name, bytes: f.bytes, type: f.type };
       if (!as_text) return out;
       const text = fileText(f);
@@ -160,6 +163,14 @@ async function exams({ IEU_USER, IEU_PASS, EXAM_USER, EXAM_PASS }) {
   const r = await (await learn.req(j, EXAM + '/sinav_programi', { method: 'POST', body: fd })).json();
   if (!r.success) throw new Error('Sınav sitesi girişi başarısız: ' + r.errorMessage);
   return parseIcs(await (await learn.req(j, EXAM + '/sinav_programi/Ogrenci/Takvim')).text());
+}
+
+// Dersin "Ders İçeriği" dosyaları: { title, file (okunur ad), url }. Dizi gibi kullanılır, .html sayfanın kendisi.
+async function courseFiles(c) {
+  const html = await get(`/student/courses/${c.courseId}/overview/unit-plan`);
+  const files = [...parsePlan(html).map(f => ({ title: f.title, file: f.file_name, url: `${learn.LEARN}/student/courses/${c.courseId}/resources/${f.id}/download` })),
+    ...parseLinks(html, learn.LEARN).map(({ url, file_name, title }) => ({ title, file: file_name, url }))];
+  return Object.assign(files, { html, files });
 }
 
 // --- MCP (JSON-RPC 2.0, satır başına bir mesaj) ---
