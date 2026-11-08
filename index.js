@@ -29,7 +29,8 @@ async function download(url, dir) {
   let u;
   try { u = new URL(String(url || ''), learn.LEARN); } catch { throw new Error('geçersiz adres'); }
   if (u.origin !== learn.LEARN || !/^\/(student|uploads)\//.test(u.pathname)) throw new Error('Yalnızca https://learn.ieu.edu.tr/student/... ve /uploads/... dosyaları indirilir');
-  const r = await learn.req(await jar(), u.href);
+  // Yönlendirmeler de yalnızca https ile IEULearn içinde kalır: site başka (ör. yerel ağdaki) bir adrese yönlendiremez.
+  const r = await learn.req(await jar(), u.href, {}, x => x.protocol === 'https:' && x.origin === learn.LEARN);
   if (!r.ok) throw new Error(`IEULearn ${r.status}: dosya indirilemedi`);
   if (/text\/html/.test(r.headers.get('content-type') || '')) throw new Error('Bu adres dosya değil, sayfa döndürdü (read_learn_page ile okuyun)');
   if (+r.headers.get('content-length') > MAX_FILE) throw new Error('Dosya çok büyük (300 MB üstü)');

@@ -21,3 +21,14 @@ test('req: başka siteye yönlendirmede çerez gitmez, oradan gelen çerez alın
     assert.equal(jar.header, 'sid=abc');
   } finally { a.close(); b.close(); }
 });
+
+test('req allow: yönlendirme adımı izin dışıysa istek yapılmaz', async () => {
+  let hit = false;
+  const b = await serve((q, s) => { hit = true; s.end('gizli'); });
+  const a = await serve((q, s) => { s.writeHead(302, { location: `http://127.0.0.1:${b.address().port}/x` }); s.end(); });
+  try {
+    const A = `http://127.0.0.1:${a.address().port}`;
+    await assert.rejects(req(new Jar(), A + '/go', {}, x => x.origin === A), /izin verilmeyen/);
+    assert.equal(hit, false);
+  } finally { a.close(); b.close(); }
+});
