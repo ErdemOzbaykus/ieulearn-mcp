@@ -5,7 +5,7 @@
 *An MCP server for Izmir University of Economics' IEULearn LMS and its Panopto lecture recordings: courses, assignments, exam schedule, course content and timestamped lecture transcripts.*
 
 - Bağımlılık yok: yalnızca Node 22+ (ses tanıma için ffmpeg).
-- Salt okunur: siteye ödev göndermez, hiçbir şeyi değiştirmez.
+- Salt okunur: siteye ödev göndermez, hiçbir şeyi değiştirmez. Yalnızca dosya indirirken bu bilgisayara yazar.
 - Şifre yalnızca bu bilgisayarda kalır (ortam değişkeni ya da `.env`); araç yanıtlarına ve yapay zekaya gitmez.
 - Gayri resmi bir araçtır, üniversiteyle bağı yoktur. Kendi hesabınızla, kendi verileriniz için kullanın.
 
@@ -18,6 +18,7 @@
 | `list_exams` | Sınav takvimi (analytics.ieu.edu.tr) |
 | `course_content` | Dersin haftalık planı ve dosya listesi |
 | `read_learn_page` | Herhangi bir `/student...` sayfasının metni (duyuru, ödev ayrıntısı vb.) |
+| `download_file` | Ders dosyasını, ödev ya da duyuru ekini indirir (`~/.ieulearn-mcp/files/<ders>/`); `as_text` ile PDF metnini de döndürür |
 | `panopto_videos` | Dersin Panopto kayıtları: tarih, süre, altyazı var mı |
 | `panopto_transcript` | Kaydın `[12:34] ...` biçiminde konuşma metni |
 
@@ -52,13 +53,14 @@ claude mcp add ieulearn -s user -- node /tam/yol/ieulearn-mcp/index.js
 }
 ```
 
-Ayarlar `.env` yerine ortam değişkeniyle de verilebilir (`IEU_USER`, `IEU_PASS`, `ASR_API_KEY`, `WHISPER_MODEL`, `IEULEARN_CACHE`); başka bir yerdeki ayar dosyası için `IEULEARN_ENV_FILE`. Tüm seçenekler: [.env.example](.env.example).
+Ayarlar `.env` yerine ortam değişkeniyle de verilebilir (`IEU_USER`, `IEU_PASS`, `ASR_API_KEY`, `WHISPER_MODEL`, `IEULEARN_CACHE`, indirme klasörü için `IEULEARN_DOWNLOADS`); başka bir yerdeki ayar dosyası için `IEULEARN_ENV_FILE`. Tüm seçenekler: [.env.example](.env.example).
 
 ## Örnek istekler
 
 - "Bu hafta teslimi olan ödevlerim neler?"
 - "MCE412'nin son ders kaydında hoca neyi anlattı? Önemli formülleri zaman damgasıyla çıkar."
 - "Sınavlarıma göre bir çalışma planı yap."
+- "MCE350'nin PCB tasarımı slaytını indir ve özetle."
 
 ## İlgili
 

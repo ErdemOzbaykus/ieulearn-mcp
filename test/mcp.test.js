@@ -51,7 +51,7 @@ test('MCP sunucusu: initialize ve tools/list (ağ yok)', async () => {
   await new Promise(r => p.on('close', r));
   const [init, list, extra] = out.trim().split('\n').map(JSON.parse);
   assert.equal(init.result.serverInfo.name, 'ieulearn');
-  assert.deepEqual(list.result.tools.map(t => t.name), ['list_courses', 'list_assignments', 'list_exams', 'course_content', 'read_learn_page', 'panopto_videos', 'panopto_transcript']);
+  assert.deepEqual(list.result.tools.map(t => t.name), ['list_courses', 'list_assignments', 'list_exams', 'course_content', 'read_learn_page', 'download_file', 'panopto_videos', 'panopto_transcript']);
   assert.equal(extra, undefined); // bildirime yanıt yok
 });
 
@@ -60,4 +60,11 @@ test('ffHeaders: çerez yalnızca Panopto akışına, yalnızca https', () => {
   assert.deepEqual(P.ffHeaders(pj, 'https://panopto.ieu.edu.tr/Panopto/Content/x.mp4'), ['-protocol_whitelist', 'https,tls,tcp,crypto', '-headers', 'Cookie: a=1\r\n']);
   assert.deepEqual(P.ffHeaders(pj, 'https://cdn.example/x.mp4'), ['-protocol_whitelist', 'https,tls,tcp,crypto']);
   assert.deepEqual(P.ffHeaders(pj, 'http://panopto.ieu.edu.tr/x.mp4'), ['-protocol_whitelist', 'https,tls,tcp,crypto']);
+});
+
+test('download_file: site dışı ve öğrenci/yükleme dışı adresleri reddeder (ağ yok)', async () => {
+  const dl = TOOLS.find(t => t.name === 'download_file');
+  for (const url of ['https://evil.example/uploads/a.pdf', '/login', '/admin/x.pdf', 'javascript:alert(1)', 'http://learn.ieu.edu.tr/uploads/a.pdf']) {
+    await assert.rejects(dl.run({ url }), /Yalnızca|geçersiz/);
+  }
 });

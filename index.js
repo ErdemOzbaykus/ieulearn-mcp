@@ -21,6 +21,39 @@ function env() {
   return { ...o, ...Object.fromEntries(Object.entries(process.env).filter(([, v]) => v)) };
 }
 const CACHE = () => env().IEULEARN_CACHE || path.join(os.homedir(), '.ieulearn-mcp'); // kayıt metinleri: <ders>/pn-<kimlik>.txt
+const DOWNLOADS = () => env().IEULEARN_DOWNLOADS || path.join(CACHE(), 'files'); // download_file buraya indirir: <ders ya da "genel">/<dosya>
+const MAX_FILE = 300e6; // bayt; büyük video vb. diski doldurmasın
+
+// IEULearn'den dosya indirir. Yalnızca site içi öğrenci/yükleme adresleri; HTML (giriş sayfası, hata) dosya sayılmaz.
+async function download(url, dir) {
+  let u;
+  try { u = new URL(String(url || ''), learn.LEARN); } catch { throw new Error('geçersiz adres'); }
+  if (u.origin !== learn.LEARN || !/^\/(student|uploads)\//.test(u.pathname)) throw new Error('Yalnızca https://learn.ieu.edu.tr/student/... ve /uploads/... dosyaları indirilir');
+  const r = await learn.req(await jar(), u.href);
+  if (!r.ok) throw new Error(`IEULearn ${r.status}: dosya indirilemedi`);
+  if (/text\/html/.test(r.headers.get('content-type') || '')) throw new Error('Bu adres dosya değil, sayfa döndürdü (read_learn_page ile okuyun)');
+  if (+r.headers.get('content-length') > MAX_FILE) throw new Error('Dosya çok büyük (300 MB üstü)');
+  const cd = r.headers.get('content-disposition') || '';
+  let name = /filename\*=UTF-8''([^;]+)/i.exec(cd)?.[1] || /filename="?([^";]+)"?/i.exec(cd)?.[1] || u.pathname.split('/').pop();
+  try { name = decodeURIComponent(name); } catch { /* olduğu gibi */ }
+  name = path.basename(name).replace(/[\x00-\x1f\x7f<>:"|?*\\]/g, '_').replace(/^\.+/, '').slice(-150) || 'dosya';
+  const chunks = []; let n = 0;
+  for await (const c of r.body) { n += c.length; if (n > MAX_FILE) throw new Error('Dosya çok büyük (300 MB üstü)'); chunks.push(c); }
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, name);
+  fs.writeFileSync(file, Buffer.concat(chunks));
+  return { file, name, bytes: n, type: r.headers.get('content-type') || '' };
+}
+
+// İndirilen dosyanın metni: PDF (pdftotext) ya da düz metin; diğerlerinde null.
+function fileText(f) {
+  if (/\.pdf$/i.test(f.name) || /pdf/.test(f.type)) {
+    try { return require('child_process').execFileSync('pdftotext', ['-layout', f.file, '-'], { maxBuffer: 1 << 28, timeout: 120000 }).toString(); }
+    catch (e) { throw new Error(e.code === 'ENOENT' ? 'PDF metni için pdftotext gerekli (brew install poppler)' : 'PDF metni çıkarılamadı'); }
+  }
+  return /^text\/|json|csv/.test(f.type) || /\.(txt|md|csv|json|m|py|c|h|cpp)$/i.test(f.name) ? fs.readFileSync(f.file, 'utf8') : null;
+}
+
 const asr = e => ({ base: e.ASR_BASE_URL || 'https://evren-llmapi.ssyz.org.tr', key: e.ASR_API_KEY || e.EVREN_KEY, model: e.ASR_MODEL || 'qwen3-asr-1.7b' });
 
 const MAX = 60000; // tek yanıtın karakter sınırı (bağlamı doldurmasın)
@@ -80,6 +113,16 @@ const TOOLS = [
       const u = new URL(String(p || ''), learn.LEARN); // tam adres de verilebilir; site dışına çıkamaz
       if (u.origin !== learn.LEARN || !/^\/student(\/|$)/.test(u.pathname)) throw new Error('Yalnızca https://learn.ieu.edu.tr/student... sayfaları okunur');
       return htmlText(await get(u.pathname + u.search)).slice(0, MAX);
+    } },
+  { name: 'download_file', description: 'IEULearn dosyasını (course_content\'teki ders dosyası, ödev ya da duyuru eki; https://learn.ieu.edu.tr/student/... veya /uploads/... adresi) bu bilgisayara indirir ve yolunu döndürür. as_text=true ile PDF/düz metin dosyasının içeriği de döner (uzunsa offset ile parça parça).', inputSchema: { type: 'object', properties: { url: str('Dosya adresi'), course: str('İsteğe bağlı ders kodu: dosya o dersin klasörüne konur'), as_text: { type: 'boolean', description: 'İçeriği metin olarak da döndür (PDF ve düz metin)' }, offset: { type: 'integer', description: 'as_text: başlangıç karakteri (varsayılan 0)' } }, required: ['url'] },
+    run: async ({ url, course: q, as_text, offset = 0 }) => {
+      const f = await download(url, path.join(DOWNLOADS(), q ? (await course(q)).course : 'genel'));
+      const out = { path: f.file, name: f.name, bytes: f.bytes, type: f.type };
+      if (!as_text) return out;
+      const text = fileText(f);
+      if (text == null) return { ...out, text: null, note: 'Bu dosya türünün metni çıkarılmaz (PPTX/DOCX için dosyayı açın ya da PDF sürümünü indirin).' };
+      const from = Math.max(0, +offset || 0);
+      return { ...out, chars: text.length, text: text.slice(from, from + MAX), ...(from + MAX < text.length && { next_offset: from + MAX }) };
     } },
   { name: 'panopto_videos', description: 'Dersin Panopto ders kayıtları (hocanın ders anlatımı videoları): kimlik, başlık, tarih, süre (dk), altyazı var mı, izleme adresi.', inputSchema: { type: 'object', properties: { course: str('Ders kodu, ör. MCE412') }, required: ['course'] },
     run: async ({ course: q }) => {
